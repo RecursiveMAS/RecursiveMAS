@@ -480,16 +480,6 @@ def compare_answers(
 
     return gold_answer, pred_answer, False, fallback_gold, fallback_pred
 
-    pred_answer = extract_boxed_answer(pred_text)
-    gold_norm = normalize_answer_string(gold_answer)
-    if pred_answer is None:
-        return gold_answer, None, False, gold_norm, ""
-    pred_norm = normalize_answer_string(pred_answer)
-    if not gold_norm or not pred_norm:
-        return gold_answer, pred_answer, False, gold_norm, pred_norm
-    correct = gold_norm == pred_norm
-    return gold_answer, pred_answer, correct, gold_norm, pred_norm
-
 
 def format_latent_info(latent: torch.Tensor) -> str:
     steps = int(latent.size(0)) if latent.ndim >= 1 else 0
