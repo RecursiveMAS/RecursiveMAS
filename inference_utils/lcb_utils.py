@@ -975,32 +975,3 @@ def evaluate_generated_code(code: str, eval_sample: Mapping[str, Any], timeout_s
         outputs=list(eval_sample.get("outputs", []) or []),
         timeout_s=timeout_s,
     )
-
-
-    if str(eval_sample.get("mode", "stdin")) == "functional":
-        fn_name = str(eval_sample.get("fn_name", "") or "")
-        inputs = list(eval_sample.get("inputs", []) or [])
-        outputs = list(eval_sample.get("outputs", []) or [])
-        isolated = str(os.environ.get("LCB_FUNCTIONAL_ISOLATED", "1")).strip().lower() not in {"0", "false", "no"}
-        if isolated:
-            return run_functional_tests_subprocess(
-                code=code,
-                fn_name=fn_name,
-                inputs=inputs,
-                outputs=outputs,
-                timeout_s=timeout_s,
-            )
-        return run_functional_tests(
-            code=code,
-            fn_name=fn_name,
-            inputs=inputs,
-            outputs=outputs,
-            timeout_s=timeout_s,
-        )
-
-    return run_stdio_tests(
-        code=code,
-        inputs=list(eval_sample.get("inputs", []) or []),
-        outputs=list(eval_sample.get("outputs", []) or []),
-        timeout_s=timeout_s,
-    )
