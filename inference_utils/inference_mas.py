@@ -246,10 +246,10 @@ def load_eval_questions_and_answers(
     if dataset_name == "__local_medqa__":
         medqa_path = dataset
         if not os.path.isfile(medqa_path):
-            medqa_path = "data/medqa.json"
+            medqa_path = "dataset/medqa.json"
         if not os.path.isfile(medqa_path):
             raise FileNotFoundError(
-                f"medqa file not found. expected '{dataset}' or 'data/medqa.json'."
+                f"medqa file not found. expected '{dataset}' or 'dataset/medqa.json'."
             )
 
         records = _load_medqa_records(medqa_path)

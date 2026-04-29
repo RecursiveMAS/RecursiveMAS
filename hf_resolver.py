@@ -74,7 +74,7 @@ def resolve_medqa_dataset_arg(dataset: str, release_code_root: Path) -> str:
     if default_path.is_file():
         return str(default_path)
     raise FileNotFoundError(
-        "MedQA json not found at release_code/dataset/medqa.json"
+        f"MedQA json not found at {default_path}"
     )
 
 

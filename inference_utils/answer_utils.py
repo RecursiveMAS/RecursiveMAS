@@ -11,8 +11,8 @@ _MATH500_KEYS = {"math500", "math-500", "huggingfaceh4/math-500"}
 _MEDQA_KEYS = {
     "medqa",
     "local/medqa",
-    "data/medqa.json",
-    "./data/medqa.json",
+    "dataset/medqa.json",
+    "./dataset/medqa.json",
 }
 _GPQA_KEYS = {
     "gpqa",
