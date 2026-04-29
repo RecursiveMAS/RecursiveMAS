@@ -357,7 +357,7 @@ def main() -> int:
 
     best_ls, best_metric_name, best_metric_value = max(results, key=lambda x: x[2])
     joined = ", ".join(f"ls={ls}:{name}={value:.2f}%" for ls, name, value in results)
-    print(f"[result] {best_metric_name}={best_metric_value:.2f}%")
+    print(f"[result] {best_metric_name}={best_metric_value:.2f}% (best at latent_length={best_ls}; sweep: {joined})")
     return 0
 
 
