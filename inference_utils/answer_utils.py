@@ -233,7 +233,7 @@ def extract_pred_answer(text: str) -> Optional[str]:
     if boxed is not None:
         return boxed
 
-    final_matches = re.findall(r"Final\\s+Answer\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.MULTILINE)
+    final_matches = re.findall(r"Final\s+Answer\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.MULTILINE)
     if final_matches:
         final_answer = final_matches[-1].strip()
         if final_answer:
