@@ -92,6 +92,11 @@ def _hie_final_instruction(question: str, mas_task: str = "math") -> str:
             "Solve the problem and put the final code inside one markdown code block, "
             "for example ```python\\n<your solution code>\\n```."
         )
+    if mas_task == "reasoning":
+        return (
+            "Answer the question carefully and directly. Use clear reasoning and natural language. "
+            "Do not force the final answer into \\boxed{} unless the question explicitly asks for that format."
+        )
     if mas_task == "choice":
         return "Solve the question and put the final choice inside \\boxed{}, for example \\boxed{A}."
     is_choice_question = bool(re.search(r"(?mi)^\s*[A-D]\s*[\.\):\-]\s+", question))
@@ -639,6 +644,73 @@ def build_math_solver_prompt_with_slots(
     raise ValueError(f"Unsupported mas_shape: {mas_shape}")
 
 
+def build_reasoning_planner_prompt(question: str) -> str:
+    return (
+        "You are a planner agent in a multi-agent reasoning system.\n"
+        "Read the question and identify the key concepts, assumptions, and reasoning steps needed for a careful answer.\n"
+        "Question:\n"
+        f"{question}\n"
+        "Provide a concise plan or outline. Do not provide the final answer yet."
+    )
+
+
+def build_reasoning_planner_prompt_with_feedback_slot(question: str) -> str:
+    return (
+        "You are a planner agent in a recursive multi-agent reasoning system.\n"
+        "This is a later recursive round.\n"
+        "Question:\n"
+        f"{question}\n"
+        "Feedback signal from the previous solver round:\n"
+        f"{FEEDBACK_SLOT}\n"
+        "Use the feedback as soft guidance to improve the reasoning plan. Prioritize the question constraints.\n"
+        "Provide a concise updated plan or outline. Do not provide the final answer yet."
+    )
+
+
+def build_reasoning_refiner_prompt(question: str, planner_output: str) -> str:
+    return (
+        "You are a refiner agent in a multi-agent reasoning system.\n"
+        "The question is:\n"
+        "Question:\n"
+        f"{question}\n"
+        "The initial plan from the planner:\n"
+        "Initial Plan:\n"
+        f"{planner_output}\n"
+        "Refine this into a clearer and stronger response plan. Do not provide the final answer yet."
+    )
+
+
+def build_reasoning_refiner_prompt_with_slot(question: str) -> str:
+    return build_reasoning_refiner_prompt(question, PLANNER_SLOT)
+
+
+def build_reasoning_solver_prompt(
+    question: str,
+    refined_plan: str,
+    args=None,
+) -> str:
+    return (
+        "You are a solver agent in a multi-agent reasoning system.\n"
+        "Use the refined plan as guidance, but prioritize the question and answer carefully.\n"
+        "Refined Plan:\n"
+        f"{refined_plan}\n"
+        "Question:\n"
+        f"{question}\n\n"
+        "Provide a clear, careful answer in natural language. Include equations, assumptions, or caveats when useful. "
+        "Do not force the final answer into \\boxed{} unless the question explicitly asks for that format."
+    )
+
+
+def build_reasoning_solver_prompt_with_slots(
+    question: str,
+    args=None,
+    mas_shape: str = "chain",
+) -> str:
+    if mas_shape == "chain":
+        return build_reasoning_solver_prompt(question, REFINED_SLOT, args)
+    raise ValueError(f"Unsupported mas_shape: {mas_shape}")
+
+
 def build_math_prompt_bundle(
     question: str,
     planner_output: str,
@@ -655,5 +727,4 @@ def build_math_prompt_bundle(
             mas_shape=mas_shape,
         ).replace(REFINED_SLOT, refined_output),
     )
-
 
