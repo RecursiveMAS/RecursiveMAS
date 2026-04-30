@@ -93,6 +93,8 @@ class ToolTagStoppingCriteria(StoppingCriteria):
 def infer_deliberation_task(dataset_name: str, is_code_eval: bool) -> str:
     if is_code_eval:
         return "code"
+    if base.is_reasoning_dataset(dataset_name):
+        return "reasoning"
     if base.is_choice_dataset(dataset_name):
         return "choice"
     return "math"

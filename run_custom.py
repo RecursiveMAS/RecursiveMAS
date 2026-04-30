@@ -21,6 +21,7 @@ from load_from_repo import STYLE_SPECS
 
 TASK_DATASET = {
     "math": "math500",
+    "reasoning": "math500",
     "choice": "gpqa",
     "code": "mbppplus",
 }
@@ -72,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--task",
         default="math",
-        choices=["math", "choice", "code"],
+        choices=["math", "reasoning", "choice", "code"],
         help="Prompt/evaluation family to use for custom inputs.",
     )
     p.add_argument("--output_jsonl", type=str, default="", help="Write clean outputs as JSONL.")
@@ -186,6 +187,8 @@ def load_question_records(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
 
 def _custom_dataset_name(task: str) -> str:
+    if task == "reasoning":
+        return "custom_reasoning"
     if task == "choice":
         return "gpqa_diamond"
     if task == "code":
@@ -299,7 +302,7 @@ def build_custom_cli(args: argparse.Namespace, result_jsonl: str) -> Tuple[objec
     )
     if args.greedy:
         cli = _remove_flag(cli, "--do_sample", takes_value=False)
-    if args.no_ans:
+    if args.no_ans or args.task == "reasoning":
         cli = _remove_flag(cli, "--ans", takes_value=False)
     cli.extend(
         [
