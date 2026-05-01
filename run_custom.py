@@ -221,6 +221,9 @@ def _build_metadata(records: List[Dict[str, Any]], task: str) -> Optional[List[D
 
 
 def install_custom_dataset_patches(records: List[Dict[str, Any]], task: str) -> None:
+    # TODO: Replace these runtime patches with a first-class custom dataset API
+    # in the inference modules, so custom prompts do not need to override
+    # benchmark loading/evaluation functions.
     (
         inference_mas,
         inference_mas_deliberation,
