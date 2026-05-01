@@ -254,12 +254,12 @@ Supported file formats:
 - `.json`: a list of strings, a list of objects, `{"questions": [...]}`, or a single object.
 - `.jsonl`/`.ndjson`: one string or object per line.
 
-For JSON objects, `run_custom.py` reads the first available field from `question`, `query`, `prompt`, `text`, or `input`. Use `--task math`, `--task choice`, or `--task code` to select the prompt/evaluation family.
+For JSON objects, `run_custom.py` reads the first available field from `question`, `query`, `prompt`, `text`, or `input`. Use `--task reasoning` for open-ended questions, `--task math` for boxed-answer math/reasoning prompts, `--task choice` for multiple-choice prompts, or `--task code` for code-generation prompts.
 
 Example bioinspired materials and materiomics prompts:
 
 ```bash
-python run_custom.py --style mixture --task math \
+python run_custom.py --style mixture --task reasoning \
   -q "A nacre-inspired composite alternates stiff ceramic platelets with a softer polymer matrix. Explain how this architecture can improve toughness compared with a monolithic ceramic." \
   --device cuda
 ```
@@ -271,7 +271,7 @@ python run_custom.py --style deliberation --task math \
 ```
 
 ```bash
-python run_custom.py --style sequential_scaled --task math \
+python run_custom.py --style sequential_scaled --task reasoning \
   -q "In materiomics, a material is studied across atomic, molecular, microstructural, and macroscopic scales. Explain how hierarchical structure can create toughness in bone while preserving stiffness." \
   --device cuda
 ```
@@ -289,21 +289,21 @@ For larger comparisons, place prompts in `questions.jsonl`:
 Then compare collaboration styles on the same prompts:
 
 ```bash
-python run_custom.py --style mixture --task math \
+python run_custom.py --style mixture --task reasoning \
   --questions_file questions.jsonl \
   --output_jsonl outputs/bio_materials_mixture.jsonl \
   --device cuda
 ```
 
 ```bash
-python run_custom.py --style deliberation --task math \
+python run_custom.py --style deliberation --task reasoning \
   --questions_file questions.jsonl \
   --output_jsonl outputs/bio_materials_deliberation.jsonl \
   --device cuda
 ```
 
 ```bash
-python run_custom.py --style sequential_scaled --task math \
+python run_custom.py --style sequential_scaled --task reasoning \
   --questions_file questions.jsonl \
   --output_jsonl outputs/bio_materials_sequential_scaled.jsonl \
   --device cuda

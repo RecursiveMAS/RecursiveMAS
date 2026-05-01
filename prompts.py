@@ -6,6 +6,10 @@ from inference_utils.reflector_tool_notes import system_prompt as REFLECTOR_TOOL
 
 SYSTEM_PROMPT = "You are a helpful assistant."
 DELIBERATION_SYSTEM_PROMPT = REFLECTOR_TOOL_SYSTEM_PROMPT
+DELIBERATION_REASONING_SYSTEM_PROMPT = REFLECTOR_TOOL_SYSTEM_PROMPT.replace(
+    "In the last part of the answer, the final exact answer is enclosed within \\boxed{} with latex format.",
+    "In the last part of the answer, provide a clear final response in natural language.",
+)
 
 PLANNER_SLOT = "<<LATENT_PLANNER_SLOT>>"
 REFINED_SLOT = "<<LATENT_REFINED_SLOT>>"
@@ -31,6 +35,8 @@ class MASPromptBundle:
 def get_system_prompt(mas_design: str = "chain", mas_role: Optional[str] = None) -> str:
     role_name = str(mas_role or "").strip().lower()
     design_name = str(mas_design or "chain").strip().lower()
+    if design_name == "deliberation_reasoning" or role_name in {"deliberation_reasoning_reflector", "deliberation_reasoning_toolcaller"}:
+        return DELIBERATION_REASONING_SYSTEM_PROMPT
     if design_name == "deliberation" or role_name in {"deliberation_reflector", "deliberation_toolcaller"}:
         return DELIBERATION_SYSTEM_PROMPT
     return SYSTEM_PROMPT
@@ -95,7 +101,7 @@ def _hie_final_instruction(question: str, mas_task: str = "math") -> str:
     if mas_task == "reasoning":
         return (
             "Answer the question carefully and directly. Use clear reasoning and natural language. "
-            "Do not force the final answer into \\boxed{} unless the question explicitly asks for that format."
+            "Use the format requested by the question, if any."
         )
     if mas_task == "choice":
         return "Solve the question and put the final choice inside \\boxed{}, for example \\boxed{A}."
@@ -697,7 +703,7 @@ def build_reasoning_solver_prompt(
         "Question:\n"
         f"{question}\n\n"
         "Provide a clear, careful answer in natural language. Include equations, assumptions, or caveats when useful. "
-        "Do not force the final answer into \\boxed{} unless the question explicitly asks for that format."
+        "Use the format requested by the question, if any."
     )
 
 
@@ -727,4 +733,3 @@ def build_math_prompt_bundle(
             mas_shape=mas_shape,
         ).replace(REFINED_SLOT, refined_output),
     )
-

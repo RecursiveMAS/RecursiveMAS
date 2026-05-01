@@ -696,12 +696,12 @@ def run_reflector_latent_stage(
     task_types: Optional[Sequence[str]],
     fn_names: Optional[Sequence[Optional[str]]],
     feedback_latents: Optional[Sequence[torch.Tensor]],
+    system_prompt: str,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = _outer_out_dim(outer_path)
         return [torch.empty((0, out_dim), dtype=torch.float32) for _ in questions]
 
-    system_prompt = get_system_prompt("deliberation")
     model, tokenizer = base.load_agent_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
         device=device,
@@ -815,12 +815,12 @@ def run_toolcaller_feedback_latent_stage(
     mas_task: str,
     task_types: Optional[Sequence[str]],
     fn_names: Optional[Sequence[Optional[str]]],
+    system_prompt: str,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = _outer_out_dim(outer_path)
         return [torch.empty((0, out_dim), dtype=torch.float32) for _ in questions]
 
-    system_prompt = get_system_prompt("deliberation")
     model, tokenizer = base.load_agent_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
         device=device,
@@ -984,8 +984,8 @@ def run_toolcaller_text_from_latent_stage(
     task_types: Optional[Sequence[str]],
     fn_names: Optional[Sequence[Optional[str]]],
     args: argparse.Namespace,
+    system_prompt: str,
 ) -> Tuple[List[str], List[str]]:
-    system_prompt = get_system_prompt("deliberation")
     model, tokenizer = base.load_agent_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
         device=device,
@@ -1105,7 +1105,6 @@ def main() -> None:
 
     trust_remote_code = bool(args.trust_remote_code)
     enable_thinking = bool(args.enable_thinking)
-    system_prompt = get_system_prompt("deliberation")
 
     outer_rt_path, outer_tr_path = resolve_deliberation_outer_paths(
         args.outer_rt_path,
@@ -1138,6 +1137,7 @@ def main() -> None:
         fn_names = [meta.get("fn_name") if isinstance(meta, dict) else None for meta in sample_metadata]
 
     mas_task = infer_deliberation_task(dataset_name, is_code_eval)
+    system_prompt = get_system_prompt("deliberation_reasoning" if mas_task == "reasoning" else "deliberation")
     print(
         f"Running method=ours_recursive on {len(questions)} samples "
         f"(reflector={args.reflector_model_name_or_path}, toolcaller={args.toolcaller_model_name_or_path}, mas_shape={args.mas_shape})"
@@ -1237,6 +1237,7 @@ def main() -> None:
                 task_types=task_types,
                 fn_names=fn_names,
                 feedback_latents=current_feedbacks,
+                system_prompt=system_prompt,
             )
             final_reflector_latents = reflector_latents
             toolcaller_inputs_for_log = [
@@ -1261,6 +1262,7 @@ def main() -> None:
                     task_types=task_types,
                     fn_names=fn_names,
                     args=args,
+                    system_prompt=system_prompt,
                 )
             else:
                 current_feedbacks = run_toolcaller_feedback_latent_stage(
@@ -1281,6 +1283,7 @@ def main() -> None:
                     mas_task=mas_task,
                     task_types=task_types,
                     fn_names=fn_names,
+                    system_prompt=system_prompt,
                 )
 
     if args.ans:
@@ -1374,6 +1377,7 @@ def main() -> None:
                     task_types=task_types,
                     fn_names=fn_names,
                     args=args,
+                    system_prompt=system_prompt,
                 )
             if args.ans:
                 rollout_outputs, _ = base.run_answer_retry_stage(
