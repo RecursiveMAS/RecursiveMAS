@@ -1,0 +1,32 @@
+services:
+  recursivemas:
+    build: .
+    image: recursivemas:latest
+    # Requires NVIDIA Container Toolkit on the host:
+    # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      # Pass HF token if models are gated
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Required only for Deliberation style
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+    volumes:
+      # Persist downloaded HF checkpoints across container runs
+      - hf_cache:/hf_cache
+    # Override with your desired --style, --dataset, etc.
+    command:
+      - --style
+      - sequential_light
+      - --dataset
+      - math500
+      - --device
+      - cuda
+
+volumes:
+  hf_cache:
