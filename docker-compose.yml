@@ -1,0 +1,56 @@
+services:
+  # ── Batch evaluation ────────────────────────────────────────────────────────
+  recursivemas:
+    build: .
+    image: recursivemas:latest
+    # Requires NVIDIA Container Toolkit on the host:
+    # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+    volumes:
+      - hf_cache:/hf_cache
+    # Override with your desired --style, --dataset, etc.
+    command:
+      - --style
+      - sequential_light
+      - --dataset
+      - math500
+      - --device
+      - cuda
+
+  # ── Web UI (Gradio) ─────────────────────────────────────────────────────────
+  serve:
+    build:
+      context: .
+      dockerfile: Dockerfile.serve
+    image: recursivemas-serve:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+    volumes:
+      - hf_cache:/hf_cache
+    ports:
+      - "${SERVE_PORT:-7860}:7860"
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "7860"
+
+volumes:
+  hf_cache:
