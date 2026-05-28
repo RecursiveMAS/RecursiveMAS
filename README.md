@@ -125,6 +125,10 @@ docker compose up serve
 
 Open [http://localhost:7860](http://localhost:7860). The UI exposes all 5 collaboration styles. Models are loaded into VRAM on the first request and stay warm for subsequent ones — no reload between questions.
 
+<p align="center">
+  <img src="assets/webui.png" width="90%" alt="RecursiveMAS Gradio Web UI">
+</p>
+
 ---
 
 ### 🩺 Health Check
@@ -164,32 +168,57 @@ All 5/5 checks passed.
 
 ### ⚠️ No GPU? CPU Fallback
 
-If your machine has no NVIDIA GPU, or GPU passthrough is not yet configured (common on Windows with WSL2), you can still test the container and run inference on CPU.
+If your machine has no NVIDIA GPU, or GPU passthrough is not yet configured (common on **Windows + WSL2**), you can still explore the web UI and run inference on CPU.
 
-**Create `docker-compose.override.yml`** in the project root to strip the GPU reservation:
+**Step 1 — Create `docker-compose.override.yml`** in the project root:
 
 ```yaml
 services:
   recursivemas:
+    runtime: runc
     deploy: {}
   serve:
+    runtime: runc
     deploy: {}
 ```
 
-Then run normally:
+The `runtime: runc` key forces the standard Docker runtime, bypassing the NVIDIA hook entirely.
+
+**Step 2 — Start the web UI**
 
 ```bash
-docker compose up recursivemas
+docker compose down          # remove any existing containers
+docker compose up serve      # start fresh without GPU reservation
 ```
 
-> CPU inference is significantly slower (minutes per sample vs. seconds on GPU) and is intended for testing and development only.
+Open [http://localhost:7860](http://localhost:7860). The **Device** dropdown will show `cpu` only — select it and send your question.
 
-**Fixing GPU passthrough on Windows (WSL2)**
+> CPU inference is orders of magnitude slower than GPU (several minutes per question vs. a few seconds). It is suitable for exploring the UI and validating the pipeline end-to-end, not for benchmarking.
 
-1. Confirm WSL2 is active: `wsl --list --verbose` → `VERSION` column must show **2**
-2. Update the NVIDIA Windows driver to ≥ 470 from [nvidia.com/drivers](https://www.nvidia.com/drivers)
-3. In Docker Desktop → **Settings → Resources → WSL Integration**, enable your distro
-4. Restart Docker Desktop, then re-run `docker compose up`
+**Alternatively**, bypass Compose entirely with `docker run`:
+
+```bash
+# Linux / macOS
+docker run --rm -p 7860:7860 \
+  -e HF_TOKEN="" -e TAVILY_API_KEY="" \
+  -v recursivemas_hf_cache:/hf_cache \
+  --entrypoint python recursivemas-serve \
+  serve.py --host 0.0.0.0 --port 7860
+
+# Windows PowerShell
+docker run --rm -p 7860:7860 `
+  -e HF_TOKEN="" -e TAVILY_API_KEY="" `
+  -v recursivemas_hf_cache:/hf_cache `
+  --entrypoint python recursivemas-serve `
+  serve.py --host 0.0.0.0 --port 7860
+```
+
+**Fixing GPU passthrough on Windows (WSL2)** — to unlock full GPU speed:
+
+1. Run `wsl --list --verbose` — the `VERSION` column must show **2** (not 1)
+2. Update the NVIDIA Windows driver to **≥ 470** from [nvidia.com/drivers](https://www.nvidia.com/drivers)
+3. Docker Desktop → **Settings → Resources → WSL Integration** → enable your distro
+4. Restart Docker Desktop, delete the override file, and re-run `docker compose up serve`
 
 ---
 
