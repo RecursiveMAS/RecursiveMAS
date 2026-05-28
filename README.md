@@ -125,6 +125,10 @@ docker compose up serve
 
 Open [http://localhost:7860](http://localhost:7860). The UI exposes all 5 collaboration styles. Models are loaded into VRAM on the first request and stay warm for subsequent ones — no reload between questions.
 
+<p align="center">
+  <img src="assets/webui.png" width="90%" alt="RecursiveMAS Gradio Web UI">
+</p>
+
 ---
 
 ### 🩺 Health Check
