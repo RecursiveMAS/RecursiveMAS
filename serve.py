@@ -277,7 +277,7 @@ def respond(
 def build_ui() -> gr.Blocks:
     device_opts = ["cuda", "cpu"] if torch.cuda.is_available() else ["cpu"]
 
-    with gr.Blocks(title="RecursiveMAS", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="RecursiveMAS") as demo:
         gr.Markdown(
             "# RecursiveMAS\n"
             "Multi-agent reasoning via latent-space recursion.  \n"
@@ -342,4 +342,4 @@ if __name__ == "__main__":
     p.add_argument("--share", action="store_true", help="Create a public Gradio tunnel")
     cfg = p.parse_args()
 
-    build_ui().launch(server_name=cfg.host, server_port=cfg.port, share=cfg.share)
+    build_ui().launch(server_name=cfg.host, server_port=cfg.port, share=cfg.share, theme=gr.themes.Soft())
