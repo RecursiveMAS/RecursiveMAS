@@ -133,6 +133,8 @@ def _run_single_question(
             top_k=-1,
             trust_remote_code=1,
             device=device,
+            seed=42,
+            sample_seed=42,
         )
 
         module, cli_args = build_cli_for_style(
