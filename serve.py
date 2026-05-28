@@ -247,12 +247,12 @@ def _build_reply(style: str, parsed: str, stdout: str) -> str:
 
 def respond(
     message: str,
-    history: List[Tuple[str, str]],
+    history: List[Dict],
     style: str,
     num_rounds: int,
     latent_steps: int,
     device: str,
-) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], str]:
+) -> Tuple[List[Dict], List[Dict], str]:
     global _CURRENT_STYLE
 
     if not message.strip():
@@ -268,7 +268,10 @@ def respond(
     except Exception as exc:
         reply = f"❌ Error during inference:\n```\n{exc}\n```"
 
-    new_history = history + [(message, reply)]
+    new_history = history + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": reply},
+    ]
     return new_history, new_history, ""
 
 
