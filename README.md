@@ -80,6 +80,119 @@ Please set up a search API key (e.g., a Tavily API key) in `.env` file:
 TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
+## 🐳 Docker: One-Click Setup
+
+> Get a fully isolated, GPU-ready environment running in **~60 seconds** — no conda, no manual driver configuration.
+
+### Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| [Docker Desktop](https://docs.docker.com/get-docker/) ≥ 24 | WSL2 backend required on Windows |
+| NVIDIA driver ≥ 470 | [Linux: NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) · Windows: driver with WSL2 support |
+| [Hugging Face token](https://huggingface.co/settings/tokens) | Read access, for model downloads |
+
+### Step 1 — Configure secrets
+
+Create a `.env` file in the project root (**never commit this file**):
+
+```env
+HF_TOKEN=hf_your_token_here
+TAVILY_API_KEY=your_tavily_key_here   # required only for deliberation style
+```
+
+### Step 2 — Build the image
+
+```bash
+docker compose build recursivemas
+```
+
+The first build takes ~5 minutes to pull the CUDA base layer. All subsequent builds are fully cached.
+
+### Step 3 — Run batch inference
+
+```bash
+docker compose up recursivemas
+```
+
+Models are downloaded from Hugging Face on first run and persisted in the `hf_cache` Docker volume — subsequent runs start immediately.
+
+### Step 4 — Launch the Gradio web UI
+
+```bash
+docker compose up serve
+```
+
+Open [http://localhost:7860](http://localhost:7860). The UI exposes all 5 collaboration styles. Models are loaded into VRAM on the first request and stay warm for subsequent ones — no reload between questions.
+
+---
+
+### 🩺 Health Check
+
+Verify the container before running inference:
+
+```bash
+# Level 1 — Python dependencies + all 5 styles registered (no GPU needed)
+docker run --rm --entrypoint python recursivemas healthcheck.py --level 1
+
+# Level 2 — CUDA device detection + tensor allocation
+docker run --rm --entrypoint python recursivemas healthcheck.py --level 2
+
+# Level 3 — HuggingFace Hub reachability (requires HF_TOKEN env var)
+docker run --rm --entrypoint python -e HF_TOKEN=$HF_TOKEN recursivemas healthcheck.py --level 3
+```
+
+Expected output for a passing level-1 check:
+
+```
+======================================================
+  RecursiveMAS — container health check
+======================================================
+
+[Level 1] Python dependencies + internal modules
+[PASS] torch: version=2.9.0+cu128
+[PASS] transformers: version=5.3.0
+[PASS] huggingface_hub: version=1.7.1
+[PASS] accelerate: version=1.12.0
+[PASS] internal modules (modeling, load_from_repo, prompts): 5 styles registered
+
+======================================================
+All 5/5 checks passed.
+```
+
+---
+
+### ⚠️ No GPU? CPU Fallback
+
+If your machine has no NVIDIA GPU, or GPU passthrough is not yet configured (common on Windows with WSL2), you can still test the container and run inference on CPU.
+
+**Create `docker-compose.override.yml`** in the project root to strip the GPU reservation:
+
+```yaml
+services:
+  recursivemas:
+    deploy: {}
+  serve:
+    deploy: {}
+```
+
+Then run normally:
+
+```bash
+docker compose up recursivemas
+```
+
+> CPU inference is significantly slower (minutes per sample vs. seconds on GPU) and is intended for testing and development only.
+
+**Fixing GPU passthrough on Windows (WSL2)**
+
+1. Confirm WSL2 is active: `wsl --list --verbose` → `VERSION` column must show **2**
+2. Update the NVIDIA Windows driver to ≥ 470 from [nvidia.com/drivers](https://www.nvidia.com/drivers)
+3. In Docker Desktop → **Settings → Resources → WSL Integration**, enable your distro
+4. Restart Docker Desktop, then re-run `docker compose up`
+
+---
+
 ## 💥 Quick Start
 
 ### 🤖 Load Model Checkpoints
@@ -167,13 +280,20 @@ The current repository is organized as follows:
 RecursiveMAS/
 ├── README.md
 ├── __init__.py
-├── run.py
+├── run.py                          # unified CLI entry point for batch inference
+├── serve.py                        # Gradio web UI (all 5 styles, warm model cache)
+├── healthcheck.py                  # 3-level container health check
 ├── load_from_repo.py
 ├── hf_resolver.py
 ├── modeling.py
 ├── system_loader.py
 ├── prompts.py
 ├── requirements.txt
+├── requirements-serve.txt          # extra deps for serve.py (gradio)
+├── Dockerfile                      # batch inference image
+├── Dockerfile.serve                # web UI image
+├── docker-compose.yml              # orchestrates both services + shared hf_cache volume
+├── .dockerignore
 ├── assets/
 ├── dataset/
 └── inference_utils/
