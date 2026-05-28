@@ -298,6 +298,11 @@ def build_ui() -> gr.Blocks:
                     value="sequential_light",
                     label="Collaboration style",
                 )
+                gr.Markdown(
+                    "> ℹ️ **First use:** model weights are downloaded from HuggingFace "
+                    "and cached locally. This may take several minutes depending on your connection. "
+                    "Subsequent runs and style switches load from cache instantly."
+                )
                 rounds_sl = gr.Slider(1, 5, value=3, step=1, label="Recursive rounds")
                 latent_sl = gr.Slider(8, 64, value=32, step=8, label="Latent steps")
                 device_dd = gr.Dropdown(choices=device_opts, value=device_opts[0], label="Device")
