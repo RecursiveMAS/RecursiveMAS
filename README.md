@@ -19,6 +19,7 @@ Scaling agent collaboration through latent-space recursion.
     <a href="https://www.linkedin.com/posts/jiaruzou_recursivemas-recurisvelearning-multiagentsystems-ugcPost-7455645681341493248-ioLJ/?utm_source=share&utm_medium=member_desktop&rcm=ACoAADc5TzgBN_tNOuzpi7kE7n6dZ0y13EkxZOs"><img src="https://img.shields.io/badge/LinkedIn-Coverage-0A66C2.svg?logo=linkedin&logoColor=white" alt="LinkedIn Coverage"></a>
     <a href="https://x.com/Jiaru_Zou/status/2049551828296389118"><img src="https://img.shields.io/badge/Twitter-Coverage-1DA1F2.svg?logo=x" alt="Twitter Coverage"></a>
     <a href="https://venturebeat.com/ai/how-recursivemas-speeds-up-multi-agent-inference-by-2-4x-and-reduces-token-usage-by-75"><img src="https://img.shields.io/badge/Venture-Beat-EE1C25.svg?labelColor=111111&color=EE1C25&logo=venturebeat&logoColor=white" alt="VentureBeat Coverage"></a>
+    <a href="https://www.youtube.com/watch?v=dUmT0OIGoqE"><img src="https://img.shields.io/badge/YouTube-Tutorial-FF0000?logo=youtube" alt="Youtube"></a>
 </p>
 
 
