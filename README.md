@@ -20,6 +20,7 @@ Scaling agent collaboration through latent-space recursion.
     <a href="https://x.com/Jiaru_Zou/status/2049551828296389118"><img src="https://img.shields.io/badge/Twitter-Coverage-1DA1F2.svg?logo=x" alt="Twitter Coverage"></a>
     <a href="https://venturebeat.com/ai/how-recursivemas-speeds-up-multi-agent-inference-by-2-4x-and-reduces-token-usage-by-75"><img src="https://img.shields.io/badge/Venture-Beat-EE1C25.svg?labelColor=111111&color=EE1C25&logo=venturebeat&logoColor=white" alt="VentureBeat Coverage"></a>
     <a href="https://www.youtube.com/watch?v=dUmT0OIGoqE"><img src="https://img.shields.io/badge/YouTube-Tutorial-FF0000?logo=youtube" alt="Youtube"></a>
+    <a href="https://vishalmysore.github.io/recursiveMASDemo/"><img src="https://img.shields.io/badge/Playground-Demo-00B894.svg?logo=googlechrome&logoColor=white" alt="Playground Demo"></a>
 </p>
 
 
@@ -28,6 +29,8 @@ Scaling agent collaboration through latent-space recursion.
 </p>
 
 ## 📰 News
+
+**[2026.06.23]** Try it out! RecursiveMAS now has a [**🧩YouTube tutorial**](https://www.youtube.com/watch?v=dUmT0OIGoqE) and an [**🎮interactive playground demo**](https://vishalmysore.github.io/recursiveMASDemo/)! Special thanks to [@TwoMinutePapers](https://www.youtube.com/@TwoMinutePapers) and [@vishalmysore](https://github.com/vishalmysore)!
 
 **[2026.05.24]** Check out the [VentureBeat article](https://t.co/KSQwBwpC4W) featuring our research on RecursiveMAS!
 
