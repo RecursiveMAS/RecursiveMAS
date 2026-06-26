@@ -172,6 +172,7 @@ RecursiveMAS/
 ├── README.md
 ├── __init__.py
 ├── run.py
+├── run_custom.py
 ├── load_from_repo.py
 ├── hf_resolver.py
 ├── modeling.py
@@ -194,6 +195,7 @@ RecursiveMAS/
 The key components are:
 
 - `run.py`: the unified entry point for running RecursiveMAS inference.
+- `run_custom.py`: runs released RecursiveMAS agents on custom prompts from CLI flags or files.
 - `load_from_repo.py`: maps each MAS style to our released Hugging Face checkpoints and dataset defaults.
 - `hf_resolver.py`: resolves and load the Hugging Face checkpoints.
 - `modeling.py`: implements RecursiveLink modules.
@@ -232,6 +234,89 @@ python run.py --style distillation --batch_size 16 --temperature 0.6 --top_p 0.9
 - **Deliberation-style RecursiveMAS** supports recursive coordination between a Reflector and a Tool-Caller for tool-integrated reasoning.
 ```bash
 python run.py --style deliberation --batch_size 16 --temperature 0.6 --top_p 0.95 --dataset math500 --seed 42 --trust_remote_code 1 --device cuda
+```
+
+### 🧪 Running Custom Prompts
+
+Use `run_custom.py` to run released RecursiveMAS agents on your own prompts without editing the benchmark datasets.
+
+Pass one or more prompts directly:
+
+```bash
+python run_custom.py --style sequential_light --task math \
+  -q "What is 17 * 23?" \
+  -q "Solve for x: 2x + 5 = 19." \
+  --device cuda
+```
+
+Or load prompts from a file:
+
+```bash
+python run_custom.py --style mixture --task choice \
+  --questions_file prompts.jsonl \
+  --output_jsonl outputs/custom_outputs.jsonl \
+  --device cuda
+```
+
+Supported file formats:
+
+- `.txt`: one question per line, or paragraph-separated questions.
+- `.json`: a list of strings, a list of objects, `{"questions": [...]}`, or a single object.
+- `.jsonl`/`.ndjson`: one string or object per line.
+
+For JSON objects, `run_custom.py` reads the first available field from `question`, `query`, `prompt`, `text`, or `input`. Use `--task reasoning` for open-ended questions, `--task math` for boxed-answer math/reasoning prompts, `--task choice` for multiple-choice prompts, or `--task code` for code-generation prompts.
+
+Example bioinspired materials and materiomics prompts:
+
+```bash
+python run_custom.py --style mixture --task reasoning \
+  -q "A nacre-inspired composite alternates stiff ceramic platelets with a softer polymer matrix. Explain how this architecture can improve toughness compared with a monolithic ceramic." \
+  --device cuda
+```
+
+```bash
+python run_custom.py --style deliberation --task math \
+  -q "A hydrogel scaffold has an effective diffusion coefficient for glucose of 4e-10 m^2/s. Estimate the characteristic diffusion time across a 500 micrometer thick scaffold using t ~ L^2/D, and explain the implication for cell viability." \
+  --device cuda
+```
+
+```bash
+python run_custom.py --style sequential_scaled --task reasoning \
+  -q "In materiomics, a material is studied across atomic, molecular, microstructural, and macroscopic scales. Explain how hierarchical structure can create toughness in bone while preserving stiffness." \
+  --device cuda
+```
+
+For larger comparisons, place prompts in `questions.jsonl`:
+
+```jsonl
+{"question":"Explain how bone-inspired hierarchical design can improve both stiffness and toughness in a synthetic composite."}
+{"question":"A lotus-leaf-inspired surface has microscale roughness plus a hydrophobic coating. Explain why water droplets bead up and roll off."}
+{"question":"Compare gecko-inspired dry adhesion and mussel-inspired wet adhesion for biomedical patch design."}
+{"question":"In materiomics, how can information flow across length scales help explain why spider silk combines strength, extensibility, and toughness?"}
+{"question":"Propose a materiomics workflow for designing a bioinspired impact-resistant composite, including at least three length scales and one experimental or computational method at each scale."}
+```
+
+Then compare collaboration styles on the same prompts:
+
+```bash
+python run_custom.py --style mixture --task reasoning \
+  --questions_file questions.jsonl \
+  --output_jsonl outputs/bio_materials_mixture.jsonl \
+  --device cuda
+```
+
+```bash
+python run_custom.py --style deliberation --task reasoning \
+  --questions_file questions.jsonl \
+  --output_jsonl outputs/bio_materials_deliberation.jsonl \
+  --device cuda
+```
+
+```bash
+python run_custom.py --style sequential_scaled --task reasoning \
+  --questions_file questions.jsonl \
+  --output_jsonl outputs/bio_materials_sequential_scaled.jsonl \
+  --device cuda
 ```
 
 ## 🙏 Acknowledgements

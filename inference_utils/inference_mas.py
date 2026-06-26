@@ -62,6 +62,12 @@ from prompts import (
     build_math_refiner_prompt_with_slot,
     build_math_solver_prompt,
     build_math_solver_prompt_with_slots,
+    build_reasoning_planner_prompt,
+    build_reasoning_planner_prompt_with_feedback_slot,
+    build_reasoning_refiner_prompt,
+    build_reasoning_refiner_prompt_with_slot,
+    build_reasoning_solver_prompt,
+    build_reasoning_solver_prompt_with_slots,
 )
 from .lcb_utils import (
     build_code_reparse_suffix,
@@ -130,6 +136,11 @@ def resolve_dataset(name: str) -> Tuple[str, Optional[str]]:
     if is_mbppplus_dataset(key):
         return "__mbppplus__", None
     return name, None
+
+
+def is_reasoning_dataset(name: str) -> bool:
+    key = str(name or "").strip().lower()
+    return key in {"custom_reasoning", "reasoning"}
 
 
 def _stable_shuffle_indices(n: int, seed_text: str) -> List[int]:
@@ -963,6 +974,7 @@ def run_planner_latent_stage(
     enable_thinking: bool,
     task_types: Optional[Sequence[str]] = None,
     fn_names: Optional[Sequence[Optional[str]]] = None,
+    reasoning_mode: bool = False,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = infer_outer_adapter_out_dim_from_file(outer_12_path)
@@ -1002,6 +1014,8 @@ def run_planner_latent_stage(
         if task_types is not None:
             fn_name = fn_names[idx] if fn_names is not None else None
             user_prompt = build_code_planner_prompt(question, task_types[idx], fn_name=fn_name)
+        elif reasoning_mode:
+            user_prompt = build_reasoning_planner_prompt(question)
         else:
             user_prompt = build_math_planner_prompt(question)
         prompt_ids.append(render_chat_prompt_ids(tokenizer, user_prompt, enable_thinking))
@@ -1055,6 +1069,7 @@ def run_refiner_latent_stage(
     enable_thinking: bool,
     task_types: Optional[Sequence[str]] = None,
     fn_names: Optional[Sequence[Optional[str]]] = None,
+    reasoning_mode: bool = False,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = infer_outer_adapter_out_dim_from_file(outer_23_path)
@@ -1104,6 +1119,8 @@ def run_refiner_latent_stage(
                 task_types[idx],
                 fn_name=fn_name,
             )
+        elif reasoning_mode:
+            user_prompt = build_reasoning_refiner_prompt_with_slot(question)
         else:
             user_prompt = build_math_refiner_prompt_with_slot(question)
         prompt_segments.append(
@@ -1176,6 +1193,7 @@ def run_solver_feedback_latent_stage(
     args: argparse.Namespace,
     task_types: Optional[Sequence[str]] = None,
     fn_names: Optional[Sequence[Optional[str]]] = None,
+    reasoning_mode: bool = False,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = infer_outer_adapter_out_dim_from_file(outer_31_path)
@@ -1227,6 +1245,8 @@ def run_solver_feedback_latent_stage(
                 mas_shape=args.mas_shape,
                 fn_name=fn_name,
             )
+        elif reasoning_mode:
+            user_prompt = build_reasoning_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
         else:
             user_prompt = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
         prompt_segments.append(
@@ -1298,6 +1318,7 @@ def run_planner_feedback_latent_stage(
     enable_thinking: bool,
     task_types: Optional[Sequence[str]] = None,
     fn_names: Optional[Sequence[Optional[str]]] = None,
+    reasoning_mode: bool = False,
 ) -> List[torch.Tensor]:
     if latent_steps == 0:
         out_dim = infer_outer_adapter_out_dim_from_file(outer_12_path)
@@ -1347,6 +1368,8 @@ def run_planner_feedback_latent_stage(
                 task_types[idx],
                 fn_name=fn_name,
             )
+        elif reasoning_mode:
+            user_prompt = build_reasoning_planner_prompt_with_feedback_slot(question)
         else:
             user_prompt = build_math_planner_prompt_with_feedback_slot(question)
         prompt_segments.append(
@@ -1417,6 +1440,7 @@ def run_solver_latent_stage(
     enable_thinking: bool,
     task_types: Optional[Sequence[str]] = None,
     fn_names: Optional[Sequence[Optional[str]]] = None,
+    reasoning_mode: bool = False,
 ) -> List[str]:
     model, tokenizer = load_agent_model_and_tokenizer(
         model_name_or_path=model_name_or_path,
@@ -1446,6 +1470,8 @@ def run_solver_latent_stage(
                 mas_shape=args.mas_shape,
                 fn_name=fn_name,
             )
+        elif reasoning_mode:
+            user_prompt = build_reasoning_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
         else:
             user_prompt = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
         prompt_segments.append(
@@ -1898,6 +1924,7 @@ def main() -> None:
     )
 
     is_code_eval = is_code_eval_dataset(dataset_name)
+    is_reasoning_eval = is_reasoning_dataset(dataset_name)
     code_eval_timeout_s = int(args.mbppplus_timeout_s) if is_mbppplus_dataset(dataset_name) else int(args.lcb_timeout_s)
     task_types: Optional[List[str]] = None
     fn_names: Optional[List[Optional[str]]] = None
@@ -2019,7 +2046,12 @@ def main() -> None:
                 fn_name=fn_name,
             ).replace(FEEDBACK_SLOT, feedback_text)
 
-        if feedback_text is None:
+        if is_reasoning_eval:
+            if feedback_text is None:
+                prompt = build_reasoning_planner_prompt(question)
+            else:
+                prompt = build_reasoning_planner_prompt_with_feedback_slot(question).replace(FEEDBACK_SLOT, feedback_text)
+        elif feedback_text is None:
             prompt = build_math_planner_prompt(question)
         else:
             prompt = build_math_planner_prompt_with_feedback_slot(question).replace(FEEDBACK_SLOT, feedback_text)
@@ -2038,6 +2070,8 @@ def main() -> None:
                 task_types[sample_idx],
                 fn_name=fn_name,
             )
+        if is_reasoning_eval:
+            return build_reasoning_refiner_prompt(question, planner_output)
         prompt = build_math_refiner_prompt(question, planner_output)
         if refiner_force_plan_only:
             prompt = f"{prompt}\nDo not calculate the final answer."
@@ -2055,6 +2089,8 @@ def main() -> None:
                 args=args,
                 fn_name=fn_name,
             )
+        if is_reasoning_eval:
+            return build_reasoning_solver_prompt(question, refined_plan, args)
         return build_math_solver_prompt(question, refined_plan, args)
 
     agent1_inputs: List[str] = [
@@ -2294,6 +2330,7 @@ def main() -> None:
             enable_thinking=enable_thinking,
             task_types=task_types,
             fn_names=fn_names,
+            reasoning_mode=is_reasoning_eval,
         )
         refiner_to_solver = run_refiner_latent_stage(
             model_name_or_path=refiner_model,
@@ -2312,6 +2349,7 @@ def main() -> None:
             enable_thinking=enable_thinking,
             task_types=task_types,
             fn_names=fn_names,
+            reasoning_mode=is_reasoning_eval,
         )
         solver_outputs = run_solver_latent_stage(
             model_name_or_path=solver_model,
@@ -2329,6 +2367,7 @@ def main() -> None:
             enable_thinking=enable_thinking,
             task_types=task_types,
             fn_names=fn_names,
+            reasoning_mode=is_reasoning_eval,
         )
         planner_to_refiner_desc = [format_latent_info(x) for x in planner_to_refiner]
         refiner_to_solver_desc = [format_latent_info(x) for x in refiner_to_solver]
@@ -2350,9 +2389,14 @@ def main() -> None:
                     fn_name=fn_name,
                 ).replace(PLANNER_SLOT, planner_to_refiner_desc[i])
             else:
-                a2_in = build_math_refiner_prompt_with_slot(question).replace(
-                    PLANNER_SLOT, planner_to_refiner_desc[i]
-                )
+                if is_reasoning_eval:
+                    a2_in = build_reasoning_refiner_prompt_with_slot(question).replace(
+                        PLANNER_SLOT, planner_to_refiner_desc[i]
+                    )
+                else:
+                    a2_in = build_math_refiner_prompt_with_slot(question).replace(
+                        PLANNER_SLOT, planner_to_refiner_desc[i]
+                    )
             agent2_inputs.append(a2_in)
         agent2_outputs = [
             f"to_agent3={refiner_to_solver_desc[i]}"
@@ -2372,7 +2416,10 @@ def main() -> None:
                     fn_name=fn_name,
                 )
             else:
-                a3_in = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                if is_reasoning_eval:
+                    a3_in = build_reasoning_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                else:
+                    a3_in = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
             a3_in = a3_in.replace(REFINED_SLOT, refiner_to_solver_desc[i])
             agent3_inputs.append(a3_in)
         agent3_outputs = solver_outputs
@@ -2401,6 +2448,7 @@ def main() -> None:
                     enable_thinking=enable_thinking,
                     task_types=task_types,
                     fn_names=fn_names,
+                    reasoning_mode=is_reasoning_eval,
                 )
             else:
                 if feedback_to_planner is None:
@@ -2420,6 +2468,7 @@ def main() -> None:
                     trust_remote_code=trust_remote_code,
                     inner_adapter_type_fallback=args.inner_adapter_type_fallback,
                     enable_thinking=enable_thinking,
+                    reasoning_mode=is_reasoning_eval,
                 )
             planner_to_refiner = [x for x in planner_to_refiner]
             planner_to_refiner_rounds.append(planner_to_refiner)
@@ -2441,6 +2490,7 @@ def main() -> None:
                 enable_thinking=enable_thinking,
                 task_types=task_types,
                 fn_names=fn_names,
+                reasoning_mode=is_reasoning_eval,
             )
             refiner_to_solver = [x for x in refiner_to_solver]
             refiner_to_solver_rounds.append(refiner_to_solver)
@@ -2464,6 +2514,7 @@ def main() -> None:
                     args=args,
                     task_types=task_types,
                     fn_names=fn_names,
+                    reasoning_mode=is_reasoning_eval,
                 )
                 feedback_to_planner = [x for x in feedback_to_planner]
                 feedback_to_planner_rounds.append(feedback_to_planner)
@@ -2485,6 +2536,7 @@ def main() -> None:
             enable_thinking=enable_thinking,
             task_types=task_types,
             fn_names=fn_names,
+            reasoning_mode=is_reasoning_eval,
         )
 
         planner_to_refiner_desc_rounds = [
@@ -2519,7 +2571,10 @@ def main() -> None:
                     fn_name=fn_name,
                 ).replace(PLANNER_SLOT, final_planner_desc[i])
             else:
-                a2_in = build_math_refiner_prompt_with_slot(question).replace(PLANNER_SLOT, final_planner_desc[i])
+                if is_reasoning_eval:
+                    a2_in = build_reasoning_refiner_prompt_with_slot(question).replace(PLANNER_SLOT, final_planner_desc[i])
+                else:
+                    a2_in = build_math_refiner_prompt_with_slot(question).replace(PLANNER_SLOT, final_planner_desc[i])
             agent2_inputs.append(a2_in)
 
         agent2_outputs = []
@@ -2545,7 +2600,10 @@ def main() -> None:
                     fn_name=fn_name,
                 )
             else:
-                a3_in = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                if is_reasoning_eval:
+                    a3_in = build_reasoning_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                else:
+                    a3_in = build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
             a3_in = a3_in.replace(REFINED_SLOT, final_refiner_desc[i])
             agent3_inputs.append(a3_in)
         agent3_outputs = solver_outputs
@@ -2629,9 +2687,14 @@ def main() -> None:
                     for i in range(len(questions))
                 ]
             else:
-                agent2_slot_prompts = [
-                    build_math_refiner_prompt_with_slot(question) for question in questions
-                ]
+                if is_reasoning_eval:
+                    agent2_slot_prompts = [
+                        build_reasoning_refiner_prompt_with_slot(question) for question in questions
+                    ]
+                else:
+                    agent2_slot_prompts = [
+                        build_math_refiner_prompt_with_slot(question) for question in questions
+                    ]
             agent2_inputs_for_log = render_inputs_for_logging(
                 model_name_or_path=refiner_model,
                 user_prompts=agent2_slot_prompts,
@@ -2663,10 +2726,16 @@ def main() -> None:
                     for i in range(len(questions))
                 ]
             else:
-                agent3_slot_prompts = [
-                    build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
-                    for question in questions
-                ]
+                if is_reasoning_eval:
+                    agent3_slot_prompts = [
+                        build_reasoning_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                        for question in questions
+                    ]
+                else:
+                    agent3_slot_prompts = [
+                        build_math_solver_prompt_with_slots(question, args, mas_shape=args.mas_shape)
+                        for question in questions
+                    ]
             agent3_inputs_for_log = render_inputs_for_logging(
                 model_name_or_path=solver_model,
                 user_prompts=agent3_slot_prompts,
@@ -2890,6 +2959,7 @@ def main() -> None:
                     enable_thinking=enable_thinking,
                     task_types=task_types,
                     fn_names=fn_names,
+                    reasoning_mode=is_reasoning_eval,
                 )
 
             if args.ans:
