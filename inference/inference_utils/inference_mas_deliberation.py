@@ -16,6 +16,7 @@ from tqdm import tqdm
 from transformers import StoppingCriteria, StoppingCriteriaList
 
 from . import inference_mas as base
+from . import tavily_search
 from .lcb_utils import (
     clean_raw_output,
     evaluate_generated_code,
@@ -38,8 +39,6 @@ TOOL_RE = re.compile(r"<(python|search)>\s*(.*?)\s*</\1>", re.DOTALL | re.IGNORE
 UNCLOSED_TOOL_RE = re.compile(r"<(python|search)>(?!.*</\1>)", re.DOTALL | re.IGNORECASE)
 DEFAULT_TAVILY_SEARCH_DEPTH = "advanced"
 DEFAULT_TAVILY_MAX_RESULTS = 4
-_TAVILY_CLIENT = None
-_TAVILY_FALLBACK_NOTED = False
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -150,6 +149,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result_max_chars", type=int, default=6000)
     parser.add_argument("--echo_last_expr", action="store_true")
     parser.add_argument("--quiet_tools", action="store_true")
+    # web search (Tavily) with multi-key rotation + credit-exhaustion (HTTP 429) detection
+    parser.add_argument("--search_provider", type=str, default="dummy", choices=["tavily", "dummy"])
+    parser.add_argument("--tavily_keys_file", type=str, default="", help="File with one Tavily API key per line; keys rotate on 429/401.")
+    parser.add_argument("--tavily_exhausted_file", type=str, default="", help="Shared file (flock'd) listing exhausted keys across worker processes.")
+    parser.add_argument("--tavily_sentinel_file", type=str, default="", help="Written when ALL keys are exhausted (surfaced by the monitor).")
+    parser.add_argument("--tavily_search_depth", type=str, default=DEFAULT_TAVILY_SEARCH_DEPTH, choices=["basic", "advanced"])
+    parser.add_argument("--tavily_max_results", type=int, default=DEFAULT_TAVILY_MAX_RESULTS)
 
     parser.add_argument("--lcb_use_private_tests", type=int, default=0, choices=[0, 1])
     parser.add_argument("--lcb_timeout_s", type=int, default=6)
@@ -430,90 +436,6 @@ def run_search_tool(query: str, max_chars: int) -> str:
     return truncate_result(result, max_chars)
 
 
-def note_tavily_fallback(reason: str) -> None:
-    global _TAVILY_FALLBACK_NOTED
-    if _TAVILY_FALLBACK_NOTED:
-        return
-    print(f"[note] {reason}; falling back to dummy search.", file=sys.stderr)
-    _TAVILY_FALLBACK_NOTED = True
-
-
-def get_tavily_api_key() -> str:
-    api_key = str(os.environ.get("TAVILY_API_KEY", "")).strip()
-    if api_key:
-        return api_key
-
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    env_path = os.path.join(repo_root, ".env")
-    if not os.path.isfile(env_path):
-        return ""
-
-    try:
-        with open(env_path, "r", encoding="utf-8") as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                if key.strip() != "TAVILY_API_KEY":
-                    continue
-                api_key = value.strip().strip("'\"")
-                if api_key:
-                    os.environ["TAVILY_API_KEY"] = api_key
-                    return api_key
-    except OSError:
-        return ""
-    return ""
-
-
-def get_tavily_client():
-    global _TAVILY_CLIENT
-    if _TAVILY_CLIENT is None:
-        from tavily import TavilyClient
-        _TAVILY_CLIENT = TavilyClient(api_key=get_tavily_api_key())
-    return _TAVILY_CLIENT
-
-
-def run_tavily_search_tool(query: str, max_chars: int) -> str:
-    api_key = get_tavily_api_key()
-    if not api_key or api_key == "xxx":
-        note_tavily_fallback("Tavily API key is missing")
-        return run_search_tool(query, max_chars)
-
-    try:
-        client = get_tavily_client()
-    except Exception as exc:
-        note_tavily_fallback(f"Tavily import/init failed: {exc}")
-        return run_search_tool(query, max_chars)
-
-    try:
-        response = client.search(
-            query=query,
-            search_depth=DEFAULT_TAVILY_SEARCH_DEPTH,
-        )
-    except Exception as exc:
-        return truncate_result(f"[search error] {type(exc).__name__}: {exc}", max_chars)
-
-    lines = [f"Query: {query}"]
-    results = response.get("results") or []
-    if results:
-        lines.append("Results:")
-    for idx, item in enumerate(results[:DEFAULT_TAVILY_MAX_RESULTS], start=1):
-        title = str(item.get("title") or "").strip()
-        url = str(item.get("url") or "").strip()
-        content = compact_whitespace(str(item.get("content") or "").strip())
-        if len(content) > 320:
-            content = content[:320].rstrip() + " ..."
-        lines.append(f"[{idx}] {title}")
-        if url:
-            lines.append(f"URL: {url}")
-        if content:
-            lines.append(content)
-    if not results:
-        lines.append("[no search results]")
-    return truncate_result("\n".join(lines), max_chars)
-
-
 def execute_tool_call(tool_call: ToolCall, args: argparse.Namespace) -> str:
     if tool_call.name == "python":
         return run_python_tool(
@@ -523,7 +445,18 @@ def execute_tool_call(tool_call: ToolCall, args: argparse.Namespace) -> str:
             echo_last_expr_flag=args.echo_last_expr,
             max_chars=args.result_max_chars,
         )
-    return run_tavily_search_tool(tool_call.content, args.result_max_chars)
+    # search: real Tavily with multi-key rotation when configured, else dummy
+    if getattr(args, "search_provider", "dummy") == "tavily" and getattr(args, "tavily_keys_file", ""):
+        return tavily_search.tavily_search(
+            tool_call.content,
+            keys_path=args.tavily_keys_file,
+            exhausted_path=(args.tavily_exhausted_file or None),
+            sentinel_path=(args.tavily_sentinel_file or None),
+            depth=args.tavily_search_depth,
+            max_results=args.tavily_max_results,
+            max_chars=args.result_max_chars,
+        )
+    return run_search_tool(tool_call.content, args.result_max_chars)
 
 
 def apply_next_tool_if_present(state: ToolLoopState, args: argparse.Namespace) -> bool:
@@ -1136,6 +1069,11 @@ def main() -> None:
         fn_names = [meta.get("fn_name") if isinstance(meta, dict) else None for meta in sample_metadata]
 
     mas_task = infer_deliberation_task(dataset_name, is_code_eval)
+    # Free-form QA (search) datasets are scored by the LLM judge, not exact-match.
+    use_llm_judge = base.is_extra_eval_dataset(dataset_name) and not is_code_eval
+    if use_llm_judge:
+        from . import llm_judge
+        llm_judge.require_config()  # fail loud now, before running inference
     print(
         f"Running method=ours_recursive on {len(questions)} samples "
         f"(reflector={args.reflector_model_name_or_path}, toolcaller={args.toolcaller_model_name_or_path}, mas_shape={args.mas_shape})"
@@ -1432,11 +1370,28 @@ def main() -> None:
             rollout_eval_code.append(eval_rows_code)
         else:
             eval_rows_math: List[Tuple[str, Optional[str], bool, str, str]] = []
+            # Parse gold/pred for every sample (reused for both em and judge scoring).
+            parsed_rows = [base.compare_answers(gold_answers[i], outputs[i], dataset_name=dataset_name) for i in range(total)]
+            if use_llm_judge:
+                # Free-form QA: correctness comes from the LLM judge, not exact-match.
+                judge_inputs = [
+                    {
+                        "question": questions[i],
+                        "gold_answer": parsed_rows[i][0] or gold_answers[i],
+                        "pred_answer": parsed_rows[i][1],
+                        "raw_output": outputs[i],
+                    }
+                    for i in range(total)
+                ]
+                verdicts = llm_judge.judge_samples(judge_inputs)
+            else:
+                verdicts = [bool(parsed_rows[i][2]) for i in range(total)]
             for i in range(total):
-                eval_row = base.compare_answers(gold_answers[i], outputs[i], dataset_name=dataset_name)
-                if eval_row[2]:
+                gold_parsed, pred_parsed, _em_correct, gold_norm, pred_norm = parsed_rows[i]
+                is_correct = bool(verdicts[i])
+                if is_correct:
                     correct_count += 1
-                eval_rows_math.append(eval_row)
+                eval_rows_math.append((gold_parsed, pred_parsed, is_correct, gold_norm, pred_norm))
             rollout_eval_math.append(eval_rows_math)
 
         rollout_correct_counts.append(correct_count)
@@ -1453,6 +1408,10 @@ def main() -> None:
             if any(rollout_eval_math[r][i][2] for r in range(args.num_rollouts)):
                 pass_correct_total += 1
     pass_at_k = 100.0 * pass_correct_total / total if total > 0 else 0.0
+
+    # Judge-scored (search) runs report only the final metric — no per-sample dump.
+    if use_llm_judge:
+        result_jsonl_path = ""
 
     method_name = f"{args.method}_deliberation"
     if result_jsonl_path:

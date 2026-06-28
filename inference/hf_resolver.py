@@ -9,6 +9,11 @@ from huggingface_hub import snapshot_download
 
 
 def snapshot_repo(repo_id: str) -> Path:
+    # Allow pointing at a locally-trained checkpoint directory (e.g. a train/ output) instead
+    # of a Hugging Face repo id -- if the path exists on disk, use it directly (no download).
+    local = Path(repo_id).expanduser()
+    if local.is_dir():
+        return local.resolve()
     resolved = snapshot_download(
         repo_id=repo_id,
         repo_type="model",

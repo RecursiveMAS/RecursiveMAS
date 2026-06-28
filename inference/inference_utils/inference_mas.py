@@ -65,13 +65,20 @@ from prompts import (
 )
 from .lcb_utils import (
     build_code_reparse_suffix,
+    build_lcb_sample_meta,
     build_mbppplus_sample_meta,
     clean_raw_output,
     evaluate_generated_code,
     extract_python_code,
     is_code_eval_dataset,
+    is_lcb_dataset,
     is_mbppplus_dataset,
     load_mbppplus_records,
+    load_release_v6_records,
+)
+from .eval_datasets_extra import (
+    is_extra_eval_dataset,
+    load_extra_eval_questions_and_answers,
 )
 
 from modeling import (
@@ -89,19 +96,57 @@ _GEN_TOP_K: Optional[int] = None
 _GEN_MIN_P: Optional[float] = None
 _GEN_REPETITION_PENALTY: float = 1.0
 
-RELEASE_RECOMMENDED_SETTINGS: Dict[Tuple[str, str], Dict[str, int]] = {
-    ("sequential_light", "math500"): {"seed": 42, "batch_size": 32, "latent_length": 48},
-    ("sequential_light", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 32},
-    ("sequential_light", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 32},
-    ("sequential_light", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 16},
-    ("sequential_scaled", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 32},
-    ("sequential_scaled", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 48},
-    ("sequential_scaled", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 48},
-    ("sequential_scaled", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 16},
+# Recommended settings per (style, dataset): the default hyperparameters applied when the
+# user passes only --style and --dataset. Fields: seed, batch_size, latent_length,
+# num_recursive_rounds; temperature is included only where it is dataset-specific (lcb).
+# AIME pass@10 (num_rollouts=10) is handled in run.py. Explicit CLI flags always override
+# these, leaving other datasets unaffected.
+RELEASE_RECOMMENDED_SETTINGS: Dict[Tuple[str, str], Dict[str, float]] = {
+    # sequential_light
+    ("sequential_light", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 3},
+    ("sequential_light", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 2},
+    ("sequential_light", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 48, "num_recursive_rounds": 3},
+    ("sequential_light", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 48, "num_recursive_rounds": 3},
+    ("sequential_light", "aime25"): {"seed": 42, "batch_size": 15, "latent_length": 32, "num_recursive_rounds": 3},
+    ("sequential_light", "aime26"): {"seed": 42, "batch_size": 15, "latent_length": 32, "num_recursive_rounds": 2},
+    # sequential_scaled
+    ("sequential_scaled", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 64, "num_recursive_rounds": 2},
+    ("sequential_scaled", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 3},
+    ("sequential_scaled", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 2},
+    ("sequential_scaled", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 3},
+    ("sequential_scaled", "aime25"): {"seed": 42, "batch_size": 15, "latent_length": 48, "num_recursive_rounds": 3},
+    ("sequential_scaled", "aime26"): {"seed": 42, "batch_size": 15, "latent_length": 64, "num_recursive_rounds": 3},
+    ("sequential_scaled", "lcb"): {"seed": 42, "batch_size": 12, "latent_length": 48, "num_recursive_rounds": 2, "temperature": 0.2},
+    # distillation
+    ("distillation", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 64, "num_recursive_rounds": 3},
+    ("distillation", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 64, "num_recursive_rounds": 2},
+    ("distillation", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 64, "num_recursive_rounds": 3},
+    ("distillation", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 16, "num_recursive_rounds": 2},
+    ("distillation", "aime25"): {"seed": 42, "batch_size": 15, "latent_length": 32, "num_recursive_rounds": 3},
+    ("distillation", "aime26"): {"seed": 42, "batch_size": 15, "latent_length": 32, "num_recursive_rounds": 3},
+    ("distillation", "lcb"): {"seed": 42, "batch_size": 12, "latent_length": 64, "num_recursive_rounds": 2, "temperature": 0.6},
+    # deliberation
+    ("deliberation", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 16, "num_recursive_rounds": 2},
+    ("deliberation", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 16, "num_recursive_rounds": 2},
+    ("deliberation", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 16, "num_recursive_rounds": 3},
+    ("deliberation", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 16, "num_recursive_rounds": 3},
+    ("deliberation", "aime25"): {"seed": 42, "batch_size": 15, "latent_length": 16, "num_recursive_rounds": 3},
+    ("deliberation", "aime26"): {"seed": 42, "batch_size": 15, "latent_length": 16, "num_recursive_rounds": 2},
+    ("deliberation", "lcb"): {"seed": 42, "batch_size": 12, "latent_length": 16, "num_recursive_rounds": 3, "temperature": 0.6},
+    ("deliberation", "bamboogle"): {"seed": 42, "batch_size": 8, "latent_length": 16, "num_recursive_rounds": 3},
+    ("deliberation", "hotpotqa"): {"seed": 42, "batch_size": 8, "latent_length": 32, "num_recursive_rounds": 2},
+    # mixture
+    ("mixture", "math500"): {"seed": 42, "batch_size": 16, "latent_length": 64, "num_recursive_rounds": 3},
+    ("mixture", "medqa"): {"seed": 42, "batch_size": 16, "latent_length": 48, "num_recursive_rounds": 2},
+    ("mixture", "gpqa"): {"seed": 42, "batch_size": 16, "latent_length": 48, "num_recursive_rounds": 3},
+    ("mixture", "mbppplus"): {"seed": 42, "batch_size": 16, "latent_length": 32, "num_recursive_rounds": 3},
+    ("mixture", "aime25"): {"seed": 42, "batch_size": 15, "latent_length": 16, "num_recursive_rounds": 3},
+    ("mixture", "aime26"): {"seed": 42, "batch_size": 15, "latent_length": 32, "num_recursive_rounds": 2},
+    ("mixture", "lcb"): {"seed": 42, "batch_size": 12, "latent_length": 16, "num_recursive_rounds": 2, "temperature": 0.2},
 }
 
 
-def get_release_recommended_settings(style: str, dataset: str) -> Optional[Dict[str, int]]:
+def get_release_recommended_settings(style: str, dataset: str) -> Optional[Dict[str, float]]:
     return RELEASE_RECOMMENDED_SETTINGS.get((str(style).lower(), str(dataset).lower()))
 
 
@@ -129,6 +174,16 @@ def resolve_dataset(name: str) -> Tuple[str, Optional[str]]:
         return "Idavidrein/gpqa", "gpqa_diamond"
     if is_mbppplus_dataset(key):
         return "__mbppplus__", None
+    if is_lcb_dataset(key):
+        return "__lcb__", None
+    if is_extra_eval_dataset(key):
+        return "__extra__", None
+    if key in {"aime25", "aime2025", "math-ai/aime25"}:
+        return "math-ai/aime25", None
+    if key in {"aime24", "aime2024", "aime_2024", "huggingfaceh4/aime_2024"}:
+        return "HuggingFaceH4/aime_2024", None
+    if key in {"aime26", "aime2026", "matharena/aime_2026"}:
+        return "MathArena/aime_2026", None
     return name, None
 
 
@@ -242,6 +297,44 @@ def load_eval_questions_and_answers(
         if return_metadata:
             return "mbppplus", questions, gold_answers, sample_metadata
         return "mbppplus", questions, gold_answers
+
+    if dataset_name == "__lcb__":
+        records = load_release_v6_records()
+        if len(records) == 0:
+            raise ValueError("Loaded LiveCodeBench records are empty.")
+
+        if shuffle:
+            rng = random.Random(seed)
+            rng.shuffle(records)
+        if num_samples > 0:
+            records = records[: min(num_samples, len(records))]
+
+        questions = []
+        gold_answers = []
+        sample_metadata = []
+        for row in records:
+            meta = build_lcb_sample_meta(row, use_private_tests=lcb_use_private_tests)
+            questions.append(str(meta["question"]))
+            gold_answers.append(str(meta.get("gold_answer", "")))
+            sample_metadata.append(meta)
+
+        if return_metadata:
+            return "lcb", questions, gold_answers, sample_metadata
+        return "lcb", questions, gold_answers
+
+    if dataset_name == "__extra__":
+        # bamboogle / hotpotqa (search-QA). hotpot uses question_only mode + a question flag.
+        # Answers are open-ended and graded by the LLM judge (see inference_mas_deliberation).
+        return load_extra_eval_questions_and_answers(
+            dataset,
+            dataset_split,
+            num_samples,
+            shuffle,
+            seed,
+            return_metadata=return_metadata,
+            hotpot_context_mode="question_only",
+            hotpot_question_flag=True,
+        )
 
     if dataset_name == "__local_medqa__":
         medqa_path = dataset
@@ -852,21 +945,51 @@ def autoregressive_latent_rollout(
 ) -> torch.Tensor:
     if latent_steps <= 0:
         raise ValueError("latent_steps must be positive for latent rollout.")
+
+    # We only ever consume the final-layer hidden state at the last position. Calling the base
+    # decoder directly returns the identical post-norm last_hidden_state that
+    # model(...).hidden_states[-1] would, while avoiding two pure-overhead memory costs:
+    #   (a) output_hidden_states=True retaining every intermediate layer's (B, L+t, H) tensor
+    #       for the whole forward (only the last layer is used), and
+    #   (b) computing the unused LM-head logits.
+    # output_hidden_states only controls collection, not the math, so the result is bit-wise
+    # identical. Falls back to the original CausalLM path for models without a standard decoder.
+    decoder = None
+    try:
+        decoder = model.get_decoder()
+    except (AttributeError, NotImplementedError):
+        decoder = getattr(model, "model", None)
+
+    def _last_token_hidden(embeds: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        if decoder is not None:
+            out = decoder(
+                inputs_embeds=embeds,
+                attention_mask=mask,
+                use_cache=False,
+                return_dict=True,
+            )
+            hidden = out.last_hidden_state
+        else:
+            # Keep only last-token logits to avoid full vocab logits OOM on long prompts.
+            forward_kwargs = {
+                "inputs_embeds": embeds,
+                "attention_mask": mask,
+                "output_hidden_states": True,
+                "use_cache": False,
+                "return_dict": True,
+            }
+            try:
+                outputs = model(logits_to_keep=1, **forward_kwargs)
+            except TypeError:
+                outputs = model(**forward_kwargs)
+            hidden = outputs.hidden_states[-1]
+        # .clone() copies the (B, H) slice exactly (bit-wise) but detaches it from the full
+        # (B, L+t, H) storage, so the slice does not pin that tensor alive for the whole rollout.
+        return hidden[:, -1, :].clone()
+
     hidden_states: List[torch.Tensor] = []
     for _ in range(latent_steps):
-        # Keep only last-token logits to avoid full vocab logits OOM on long prompts.
-        forward_kwargs = {
-            "inputs_embeds": input_embeds,
-            "attention_mask": attention_mask,
-            "output_hidden_states": True,
-            "use_cache": False,
-            "return_dict": True,
-        }
-        try:
-            outputs = model(logits_to_keep=1, **forward_kwargs)
-        except TypeError:
-            outputs = model(**forward_kwargs)
-        last_hidden = outputs.hidden_states[-1][:, -1, :]
+        last_hidden = _last_token_hidden(input_embeds, attention_mask)
         hidden_states.append(last_hidden.unsqueeze(1))
 
         next_embed = run_inner_adapter(

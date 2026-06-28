@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environments and secrets
+.env
+.venv/
+venv/
+env/
+keys.txt
+*keys*.txt
+
+# Hugging Face / training caches
+.cache/
+wandb/
+runs/
+outputs/
+results/
+
+# Checkpoints and generated artifacts
+train/ckpts/
+checkpoints/
+*.pt
+*.safetensors
+
+# Large local training-data backups. Use the Hugging Face datasets by default.
+train/data/*.json
+!train/data/README.md
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

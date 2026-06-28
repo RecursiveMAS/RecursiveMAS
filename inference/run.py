@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 THIS_DIR = Path(__file__).resolve().parent
 PARENT_DIR = THIS_DIR.parent
@@ -30,7 +30,6 @@ from inference_utils import (
     inference_mas_mixture,
 )
 
-LATENT_STEPS_SWEEP: Tuple = (16, 32, 48)
 GPQA_DEFAULT_CHOICE_OLD_PROMPT = 2
 MBPPPLUS_TEMPERATURE = 0.2
 
@@ -46,19 +45,65 @@ class RunCapture:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Release inference runner for RecursiveMAS HF checkpoints.")
     p.add_argument("--style", required=True, choices=list(STYLE_SPECS.keys()))
-    p.add_argument("--dataset", required=True, default="math500", choices=["math500", "medqa", "gpqa", "mbppplus"])
+    p.add_argument("--dataset", required=True, default="math500", choices=["math500", "medqa", "gpqa", "mbppplus", "aime25", "aime26", "livecodebench", "bamboogle", "hotpotqa"])
     p.add_argument("--dataset_split", default="")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--sample_seed", type=int, default=-1)
     p.add_argument("--num_recursive_rounds", type=int, default=3)
+    p.add_argument("--num_samples", type=int, default=-1, help="Limit number of eval questions (-1 = all). Useful for quick canaries.")
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--latent_length", type=int, default=32)
     p.add_argument("--temperature", type=float, default=0.6)
     p.add_argument("--top_p", type=float, default=0.95)
     p.add_argument("--top_k", type=int, default=-1)
+    p.add_argument("--num_rollouts", type=int, default=1, help="Stochastic rollouts for pass@k. AIME defaults to 10 (pass@10) if not set.")
+    p.add_argument("--lcb_use_private_tests", type=int, default=1, choices=[0, 1], help="LCB: 1 = public + private (hidden) tests, 0 = public only.")
+    # search-QA (deliberation + Tavily): keys file + per-sample output for later LLM-judge
+    p.add_argument("--tavily_keys_file", default="", help="File of Tavily keys (deliberation search datasets).")
+    p.add_argument("--tavily_sentinel_file", default="", help="Sentinel path written when all Tavily keys exhausted.")
+    p.add_argument("--result_jsonl", default="", help="Per-sample output (question/gold/pred/raw_output) for LLM-judge.")
     p.add_argument("--trust_remote_code", type=int, default=1, choices=[0, 1])
     p.add_argument("--device", default=None)
+    p.add_argument(
+        "--ckpt_override",
+        action="append",
+        default=[],
+        metavar="KEY=PATH",
+        help="Override a role/outer repo with a locally-trained checkpoint dir (no HF download), "
+             "e.g. --ckpt_override solver=/path/trained_solver --ckpt_override outer=/path/trained_outer. "
+             "Repeatable. Keys are the style's repo keys: sequential {planner,critic,solver,outer}; "
+             "mixture {math,code,science,summarizer,outer}; distillation {expert,learner,outer}; "
+             "deliberation {reflector,toolcaller,outer}.",
+    )
     return p
+
+
+def is_search_dataset(dataset: str) -> bool:
+    return dataset.strip().lower() in {"bamboogle", "hotpotqa"}
+
+
+def validate_style_dataset(args: argparse.Namespace) -> None:
+    """Fail fast on (style, dataset) pairs that would silently produce a meaningless metric.
+
+    The search-QA datasets (``bamboogle``/``hotpotqa``) are answered with the Deliberation
+    pipeline only: the Tool-Caller issues real web searches and the open-ended answers are
+    graded by an LLM judge. Running them under any other style would fall through to
+    string-match scoring and report a number that does not reflect the task, so we reject
+    the combination up front instead of returning a wrong result.
+    """
+    if is_search_dataset(args.dataset):
+        if args.style != "deliberation":
+            raise SystemExit(
+                f"[error] dataset '{args.dataset}' is a search-QA task supported only by "
+                f"--style deliberation (got --style {args.style}). "
+                f"Re-run with --style deliberation, or choose a non-search dataset."
+            )
+        if not args.tavily_keys_file:
+            raise SystemExit(
+                f"[error] dataset '{args.dataset}' needs web search: pass "
+                f"--tavily_keys_file <path> (a file of Tavily keys) and set the "
+                f"API_KEY / API_BASE_URL / API_MODEL judge env vars. See inference/README.md."
+            )
 
 
 def infer_dataset_split(dataset: str, explicit: str) -> str:
@@ -68,27 +113,34 @@ def infer_dataset_split(dataset: str, explicit: str) -> str:
 
 
 def infer_max_new_tokens(style: str, dataset: str) -> int:
-    if dataset.lower() == "math500":
+    ds = dataset.lower()
+    if ds == "math500":
         if style == "sequential_light":
             return 1000
         return 2000
+    if ds in {"aime25", "aime26"}:
+        # AIME pass@10: light family uses 8k, all larger families use 16k.
+        return 8192 if style == "sequential_light" else 16000
+    if ds == "lcb":
+        # LiveCodeBench: 4096 generation tokens.
+        return 4096
+    if ds in {"bamboogle", "hotpotqa"}:
+        # Search-QA (deliberation + Tavily): 4000 generation tokens.
+        return 4000
     return 4000
 
 
 def infer_temperature(dataset: str, explicit: float) -> float:
     if dataset.lower() == "mbppplus":
         return MBPPPLUS_TEMPERATURE
+    # lcb uses the recommended temperature, or --temperature if explicitly provided.
     return explicit
 
 
-def resolve_latent_steps(explicit: int) -> Tuple[int, ...]:
-    if explicit is not None and explicit > 0:
-        return (explicit,)
-    return LATENT_STEPS_SWEEP
-
-
 def _has_cli_flag(flag: str) -> bool:
-    return flag in sys.argv[1:]
+    # Matches both "--flag value" and "--flag=value" forms.
+    prefix = flag + "="
+    return any(arg == flag or arg.startswith(prefix) for arg in sys.argv[1:])
 
 
 def apply_recommended_settings(args: argparse.Namespace) -> None:
@@ -100,16 +152,21 @@ def apply_recommended_settings(args: argparse.Namespace) -> None:
         "seed": "--seed",
         "batch_size": "--batch_size",
         "latent_length": "--latent_length",
+        "num_recursive_rounds": "--num_recursive_rounds",
+        "temperature": "--temperature",
     }
+    int_fields = {"seed", "batch_size", "latent_length", "num_recursive_rounds"}
     mismatches: List[str] = []
-    for field_name, flag in field_to_flag.items():
-        recommended_value = recommended[field_name]
+    for field_name, recommended_value in recommended.items():
+        flag = field_to_flag.get(field_name)
+        if flag is None:
+            continue
+        recommended_value = int(recommended_value) if field_name in int_fields else float(recommended_value)
         explicit = _has_cli_flag(flag)
-        current_value = getattr(args, field_name)
         if not explicit:
             setattr(args, field_name, recommended_value)
             continue
-        if current_value != recommended_value:
+        if getattr(args, field_name) != recommended_value:
             mismatches.append(f"{field_name}={recommended_value}")
 
     if mismatches:
@@ -120,9 +177,11 @@ def apply_recommended_settings(args: argparse.Namespace) -> None:
         )
 
 
-def resolve_style_paths(style: str, dataset: str) -> Dict[str, Path]:
+def resolve_style_paths(style: str, dataset: str, repo_overrides: Optional[Dict[str, str]] = None) -> Dict[str, Path]:
     spec = STYLE_SPECS[style]
-    repos = spec["repos"]
+    repos = dict(spec["repos"])
+    if repo_overrides:
+        repos.update(repo_overrides)
     task = task_for_inner_repo(dataset)
     out: Dict[str, Path] = {}
 
@@ -182,10 +241,10 @@ def build_common_cli(args: argparse.Namespace, dataset_arg: str, dataset_split: 
     out = [
         "--dataset", dataset_arg,
         "--dataset_split", dataset_split,
-        "--num_samples", "-1",
+        "--num_samples", str(args.num_samples),
         "--seed", str(args.seed),
         "--sample_seed", str(args.sample_seed),
-        "--num_rollouts", "1",
+        "--num_rollouts", str(args.num_rollouts),
         "--num_recursive_rounds", str(args.num_recursive_rounds),
         "--batch_size", str(args.batch_size),
         "--latent_steps", str(latent_steps),
@@ -201,6 +260,9 @@ def build_common_cli(args: argparse.Namespace, dataset_arg: str, dataset_split: 
         "--trust_remote_code", str(args.trust_remote_code),
         "--enable_thinking", "0",
     ]
+    if args.dataset.lower() == "lcb":
+        # private=1 => public + private (hidden) tests; 0 => public only. 6s/test.
+        out.extend(["--lcb_use_private_tests", str(args.lcb_use_private_tests), "--lcb_timeout_s", "6"])
     if args.device is not None:
         out.extend(["--device", str(args.device)])
     out.append("--do_sample")
@@ -209,6 +271,10 @@ def build_common_cli(args: argparse.Namespace, dataset_arg: str, dataset_split: 
 
 
 def extract_metric(output_text: str) -> Tuple[str, float]:
+    passk = re.findall(r"pass@(\d+)=([0-9]+(?:\.[0-9]+)?)%", output_text)
+    if passk:
+        k, val = passk[-1]
+        return f"pass@{k}", float(val)
     matches = re.findall(r"accuracy=([0-9]+(?:\.[0-9]+)?)%", output_text)
     if matches:
         return "accuracy", float(matches[-1])
@@ -318,6 +384,19 @@ def build_cli_for_style(
             "--result_max_chars", "6000",
         ] + common
         cli.append("--quiet_tools")
+        # search-QA datasets: enable real Tavily (multi-key rotation) + per-sample jsonl for LLM-judge
+        if is_search_dataset(args.dataset) and args.tavily_keys_file:
+            cli += [
+                "--search_provider", "tavily",
+                "--tavily_keys_file", str(args.tavily_keys_file),
+                "--tavily_exhausted_file", "/tmp/tavily_exhausted.txt",
+                "--tavily_search_depth", "advanced",
+                "--tavily_max_results", "4",
+            ]
+            if args.tavily_sentinel_file:
+                cli += ["--tavily_sentinel_file", str(args.tavily_sentinel_file)]
+        if args.result_jsonl:
+            cli += ["--result_jsonl", str(args.result_jsonl)]
         return inference_mas_deliberation, cli
 
     raise ValueError(f"Unsupported style family: {family}")
@@ -328,36 +407,41 @@ def main() -> int:
     os.environ.setdefault("MAS_FORCE_DISABLE_TORCHVISION", "1")
 
     args = build_parser().parse_args()
+    if args.dataset.lower() == "livecodebench":
+        args.dataset = "lcb"  # internal dataset key
+    validate_style_dataset(args)
     apply_recommended_settings(args)
+    if args.dataset.lower() in {"aime25", "aime26"} and not _has_cli_flag("--num_rollouts"):
+        args.num_rollouts = 10  # AIME defaults to pass@10
+    if args.dataset.lower() == "lcb" and not _has_cli_flag("--temperature"):
+        # LCB default temperature; only when the recommended table didn't already set one.
+        recommended = inference_mas.get_release_recommended_settings(args.style, args.dataset)
+        if not (recommended and "temperature" in recommended):
+            args.temperature = 0.2
     repo_root = Path(__file__).resolve().parent
     dataset_arg = resolve_medqa_dataset_arg(args.dataset, repo_root)
     dataset_split = infer_dataset_split(args.dataset, args.dataset_split)
-    paths = resolve_style_paths(args.style, args.dataset)
+    repo_overrides: Dict[str, str] = {}
+    for item in args.ckpt_override:
+        if "=" not in item:
+            raise ValueError(f"--ckpt_override must be KEY=PATH, got: {item!r}")
+        key, path = item.split("=", 1)
+        repo_overrides[key.strip()] = path.strip()
+    paths = resolve_style_paths(args.style, args.dataset, repo_overrides=repo_overrides)
     family = str(STYLE_SPECS[args.style]["family"])
-    latent_steps_values = resolve_latent_steps(args.latent_length)
-
     max_new_tokens = infer_max_new_tokens(args.style, args.dataset)
-    print(f"[run] style={args.style} dataset={args.dataset} rounds={args.num_recursive_rounds} batch_size={args.batch_size} max_new_tokens={max_new_tokens}")
-    results: List[Tuple[int, str, float]] = []
-    for latent_steps in latent_steps_values:
-        print(f"[latent_steps={latent_steps}]", flush=True)
-        module, cli = build_cli_for_style(
-            args=args,
-            family=family,
-            dataset_arg=dataset_arg,
-            dataset_split=dataset_split,
-            paths=paths,
-            latent_steps=latent_steps,
-            max_new_tokens=max_new_tokens,
-        )
-        metric_name, metric_value, _ = run_module(module, cli)
-        results.append((latent_steps, metric_name, metric_value))
-
-        print(f"  {metric_name}={metric_value:.2f}%")
-
-    best_ls, best_metric_name, best_metric_value = max(results, key=lambda x: x[2])
-    joined = ", ".join(f"ls={ls}:{name}={value:.2f}%" for ls, name, value in results)
-    print(f"[result] {best_metric_name}={best_metric_value:.2f}%")
+    print(f"[run] style={args.style} dataset={args.dataset} rounds={args.num_recursive_rounds} batch_size={args.batch_size} latent_length={args.latent_length} max_new_tokens={max_new_tokens}")
+    module, cli = build_cli_for_style(
+        args=args,
+        family=family,
+        dataset_arg=dataset_arg,
+        dataset_split=dataset_split,
+        paths=paths,
+        latent_steps=args.latent_length,
+        max_new_tokens=max_new_tokens,
+    )
+    metric_name, metric_value, _ = run_module(module, cli)
+    print(f"[result] {metric_name}={metric_value:.2f}%")
     return 0
 
 

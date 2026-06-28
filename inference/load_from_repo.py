@@ -60,5 +60,16 @@ DATASET_DEFAULT_SPLIT = {
     "local/medqa": "train",
     "mbppplus": "test",
     "evalplus/mbppplus": "test",
+    "aime25": "test",
+    "math-ai/aime25": "test",
+    "aime26": "train",
+    "matharena/aime_2026": "train",
+    "lcb": "test",
+    "livecodebench": "test",
+    "livecodebench/code_generation_lite": "test",
+    "bamboogle": "test",
+    "chiayewken/bamboogle": "test",
+    "hotpotqa": "validation",
+    "hotpot_qa": "validation",
 }
 
