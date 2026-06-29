@@ -53,7 +53,7 @@ python inference/run.py \
 
 This is the fastest way to explore a released RecursiveMAS configuration. To reproduce our paper experiments, please first follow our training pipeline in the [training guide](../train/README.md) to train the corresponding configurations, the run the inference and evaluation steps below.
 
-## 📈 Paper Experiment Runs
+## 📈 Run Paper Experiments
 
 The table below summarizes the key command-line arguments used for inference and evaluation.
 
